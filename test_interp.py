@@ -5,8 +5,12 @@ from textual.binding import Binding
 from textual.theme import Theme
 from textual.reactive import reactive
 from textual import work
+from textual.message import Message
+from textual.screen import ModalScreen
 import os,time
 from pathlib import Path
+from typing import Iterable
+import cstorm_utils as cs
 
 #TODO This can almost certianly be handled with input validators
 class FileValidator:
@@ -47,51 +51,13 @@ class FileValidator:
             return True
         else:
             input_widget.add_class("-invalid-file")
-            input_widget.tooltip = f"File Not Found{'\n' + self._original_tooltip if self._original_tooltip is not None else ''}"
+            #input_widget.tooltip = f"File Not Found{'\n' + self._original_tooltip if self._original_tooltip is not None else ''}" ## syntax error in Python versions 3.11 and lower
+            input_widget.tooltip = f"File Not Found{self._original_tooltip if self._original_tooltip is not None else ''}" ## switch to this line unless using 3.12+
             self.ready = False
             return False
 
 class FilePickerRow(Horizontal,FileValidator):
     """A reusable, self-contained row with an etched label, an input, and a browse button."""
-
-    DEFAULT_CSS = """
-    FilePickerRow {
-        height: 3;
-        align-vertical: middle;
-       
-    }
-
-    /* Target the label by class/type instead of specific ID */
-    FilePickerRow > Label {
-        width: 22;
-        min-width: 22;
-        height: 3;
-        content-align: center middle;
-        background: $surface;
-        border: tall $border-blurred;
-        &:disabled {
-            color: auto 50%;
-            pointer: not-allowed;
-        }
-    }
-
-    /* Input expands dynamically to fill the middle space */
-    FilePickerRow > Input {
-        width: 1fr;
-    }
-
-    FilePickerRow > Input.-invalid-file {
-        border: tall $error;
-    }
-
-    /* Browse/Action button */
-    FilePickerRow > Button {
-        width: 16;
-        min-width: 16;
-        height: 3;
-    }
-    
-    """
 
     # Custom message emitted when this specific row's button is clicked
     """ class Selected(Message):
@@ -105,6 +71,7 @@ class FilePickerRow(Horizontal,FileValidator):
         placeholder: str = "/path/to/file",
         initial_value: str = "",
         tooltip: str = "",
+        input_field_id: str = "",
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -112,26 +79,67 @@ class FilePickerRow(Horizontal,FileValidator):
         self.placeholder = placeholder
         self.initial_value = initial_value
         self.tooltip = tooltip
+        self.input_field_id = input_field_id
 
     def compose(self) -> ComposeResult:
         yield Label(self.label_text)
         yield Input(value=self.initial_value, placeholder=self.placeholder, tooltip = self.tooltip, id = f"{self.id}_path")
-        yield Button("Select File", variant="primary")
+        yield SelectFile(input_field_id=self.input_field_id)
+        
+class FilteredDirectoryTree(DirectoryTree):
+    """ Probably unnecessary method to ignore hidden files/directories from tree."""
+    def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
+        return [path for path in paths if not path.name.startswith(".")]
+
+class FilePickerModal(ModalScreen[Path]):
+    """A pop-up window containing a directory browser.
+        Displaying CWD only.
+    """
+
+    def compose(self) -> ComposeResult:
+        with Vertical(id="modal-container"):
+            yield Label("Select a File") #add option to escape pop up screen later
+            yield FilteredDirectoryTree("./")
+
+    def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
+        """Dismiss the modal screen and return the chosen file path."""
+        event.stop()
+        self.dismiss(event.path)
+
+class SelectFile(Horizontal,FileValidator): 
+    """ Creating widget to select files from directory tree.
+        Default Label -> 'Select File:'
+        Default Variant -> 'primary'
+    """
+
+    class Selected(Message):
+        def __init__(self, path: Path) -> None:
+            super().__init__()
+            self.path = path
+
+    def __init__(self, input_field_id: str, button_text: str = "Select File:", id: str | None = None) -> None:
+        super().__init__(id=id)
+        self.button_text = button_text
+        self.input_field_id = input_field_id
+
+    def compose(self) -> ComposeResult:
+        yield Button(self.button_text, id="browse-btn", variant="primary")
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "browse-btn":
+            self.app.push_screen(FilePickerModal(), callback=self.handle_file_chosen)
+
+    def handle_file_chosen(self, chosen_file: Path | None) -> None:
+        """Triggered automatically when the modal screen dismisses."""
+        if chosen_file:  # Verify the user didn't hit escape or cancel
+            chosen_file_path = self.screen.query_one(f"#{self.input_field_id}", Input)
+            chosen_file_path.value = str(chosen_file)
+
 
 class ClearButton(Button):
     """A statically sized, self-handling button to clear a targeted Input."""
 
     # Default styling for a compact, statically sized square button
-    DEFAULT_CSS = """
-    ClearButton {
-        width: 4;
-        min-width: 4;
-        height: 3;
-        padding: 0;
-        margin: 0;
-        border: none;
-    }
-    """
 
     def __init__(self, target_input: Input | None = None, **kwargs) -> None:
         # Default label to ✕ and styling variant to error/red if not specified
@@ -146,27 +154,6 @@ class ClearButton(Button):
             self.target_input.focus()
 
 class SourceGroup(Horizontal,FileValidator):
-    DEFAULT_CSS = """
-SourceGroup {
-    height: 3;
-}
-#source_format {
-    width: 22;
-    min-width: 22;
-}
-
-#source_path {
-    width: 1fr;
-}
-#source_path.-invalid-file {
-    border: tall $error;
-}
-
-#select_file_weights {
-    width: 16;
-}
-
-        """
     def compose(self):
         self.ready = None
         yield Select([
@@ -177,32 +164,12 @@ SourceGroup {
                     id = "source_format"
                     )
         yield Input(placeholder = "/path/to/source/grd", id = "source_path", tooltip = "Path to the source fort.14.")
-        yield Button("Select File", id = "select_file_weights", variant="primary")
+        yield SelectFile(input_field_id="source_path", id="select_file_weights")
 
     def on_select_changed(self, event: Select.Changed) -> None:
         self.parent.mode = event.value
 
 class SaveWeightsGroup(Horizontal,FileValidator):
-    DEFAULT_CSS = """
-SaveWeightsGroup {
-    height: 3;
-}
-#save_weights_button {
-    width: 22;
-    min-width: 22;
-}
-
-#save_weights_path {
-    width: 1fr;
-}
-#save_weights_path.-invalid-file {
-    border: tall $error;
-}
-
-#placeholder {
-    width: 16;
-}
-        """
     def compose(self):
         self.ready = None
         yield Checkbox("Save Weights",id = "save_weights_button")
@@ -225,38 +192,6 @@ SaveWeightsGroup {
         self.parent.mutate_reactive(self.parent.__class__.paths_ready)
 
 class LoadWeights(Horizontal):
-    DEFAULT_CSS = """
-
-LoadWeights{
-    width: 100%;
-    height: 3;
-}
-
-#load_weights_button {
-    width: 20;
-    margin: 0 1;
-}
-#load_weights_progressbar {
-    margin: 1 2;
-    width: 1fr;
-}
-
-#load_weights_progressbar > Bar {
-    width: 1fr;
-}
-
-#load_weights_progressbar > PercentageStatus {
-    width: 6;
-    text-align: right;
-}
-
-/* 3. Right-align the countdown / ETA timer */
-#load_weights_progressbar > ETAStatus {
-    width: 10;
-    text-align: right;
-}
-
-"""
     def compose(self):
         yield Button("Load weights",id = "load_weights_button",variant="success")
         yield ProgressBar(total=100, id = "load_weights_progressbar")
@@ -266,20 +201,11 @@ LoadWeights{
         self.parent.execute()
 
 class InputGroup(VerticalGroup):
-    DEFAULT_CSS = """
-InputGroup {
-height: auto;
-margin: 0;
-padding: 0;
-}
-LoadWeights {
-    margin: 1 0;
-}
-"""
-    def __init__(self,*args,**kwargs):
+    def __init__(self, app, *args,**kwargs):
         super().__init__(*args,**kwargs)
         #TODO If the ui becomes dynamic, these need to become querries instead of attributes
-        self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
+        self.text_app = app
+        self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target", input_field_id="target_path")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
 
     mode = reactive("grd")
@@ -340,6 +266,7 @@ LoadWeights {
         yield self.saveweightsgroup
         yield LoadWeights(id = "load_weights")
 
+    @work(thread=True)
     def execute(self):
         if self.mode == "wts":
             weights = self.query_one("#source_path").value
@@ -353,25 +280,17 @@ LoadWeights {
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
             else:
+                load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
+                load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                                and 
+                                                                                self.app.log_interp(f"Weights loaded")))
                 save_weights = False
+                unstruct_kwargs,target_kwargs,target_grd_key = cs.interp.stacks.read_sources(source_grd, target_grd, pbar=load_pbar)
             weights = None
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
-        self.app._advance_pbar(self.query_one(ProgressBar),call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                                and 
-                                                                                self.app.log_interp(f"Weights loaded")))
 
 class OptionsGroup(Horizontal):
-    DEFAULT_CSS = """
-OptionsGroup {
-    margin-top: 1;
-    height: auto;
-}
-
-#pool_cap_input  {
-    width: 16;
-}
-"""
     def compose(self):
             yield Checkbox("Compress", id = "compress_check_box")
             yield Select([
@@ -391,53 +310,6 @@ OptionsGroup {
             yield Checkbox("Quite", id = "quite_check_box")
 
 class RunInterp(Horizontal):
-    DEFAULT_CSS = """
-
-RunInterp {
-    width: 100%;
-    height: 3;
-}
-
-#run_interp_button {
-    width: 20;
-    margin: 0 1;
-}
-
-ProgressBar {
-    margin: 1 2;
-    width: 1fr;
-}
-
-ProgressBar > Bar {
-    width: 1fr;
-}
-
-ProgressBar > PercentageStatus {
-    width: 6;
-    text-align: right;
-}
-
-ProgressBar > ETAStatus {
-    width: 10;
-    text-align: right;
-}
-
-#progress_bars_vertical {
-    height: 3;
-}
-
-#interp_label {
-    border: vkey $primary;
-    content-align: center middle;
-    height: 3;
-}
-
-
-#write_label {
-    border: vkey $primary;
-    height: 3;
-}
-"""
     def compose(self):
         yield Button("Run Interp",id = "run_interp_button",variant="success")
         with Horizontal(id = "progress_bars_vertical"):
@@ -462,18 +334,6 @@ ProgressBar > ETAStatus {
 #                                                        )))
 
 class OutputGroup(VerticalGroup):
-    DEFAULT_CSS = """
-OutputGroup {
-    height: auto;
-}
-OptionsGroup {
-    margin-top: 1;
-    height: auto;
-}
-RunInterp {
-    margin-top: 1;
-}
-"""
 
     paths_ready = reactive({"source_data":None})
 
@@ -519,51 +379,29 @@ RunInterp {
 class FullWidthLogHeader(Label):
     """A full-width banner label to denote the start of the log output section."""
 
-    DEFAULT_CSS = """
-    FullWidthLogHeader {
-        width: 100%;
-        height: 3;
-        background: $boost;
-        border-top: solid $primary;
-        border-bottom: solid $primary;
-        color: $text;
-        text-style: bold;
-        content-align: center middle;  /* Center text across the entire width */
-        margin: 1 0;
-    }
-    """
-
     def __init__(self, text: str = "LOG", **kwargs) -> None:
         super().__init__(text, **kwargs)
 
+class PBar:
+    def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
+        super().__init__()
+        self.text_app = app
+        self.pbar = pbar
+        self.call_back = call_back
+    
+    def update(self, amount: int = 1):
+        self.text_app.call_from_thread(self.pbar.advance, amount)
+
+        if self.call_back:
+            self.text_app.call_from_thread(self.call_back)
+
 class InterpApp(App):
     """A Textual app to manage stopwatches."""
-    #CSS_PATH = "cc.tcss"
-    DEFAULT_CSS = """
-#main {
-    margin: 0;
-    padding: 0;
-    height: 100%;
-    align-vertical: top;
-}
-
-TextArea {
-    min-height: 1;
-}
-"""
+    CSS_PATH = "interp_app.tcss"
     disable_output = reactive(True)
 
     def watch_disable_output(self, disable_output):
         self.outputgroup.disabled = disable_output
-
-    @work(thread=True)
-    def _advance_pbar(self,pbar: ProgressBar, call_back = None) -> None:
-        for _ in range(pbar.total):
-            self.call_from_thread(pbar.advance, 1)
-            time.sleep(.05)
-
-        if call_back:
-            self.call_from_thread(call_back)
 
     BINDINGS = [
                 Binding("ctrl+d", "quit", "Quit", priority=True),
@@ -571,14 +409,13 @@ TextArea {
 
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
-        self.inputgroup = InputGroup()
+        self.inputgroup = InputGroup(self)
         self.outputgroup = OutputGroup()
         self.textarea = Log()
 
     def compose(self) -> ComposeResult:
         """Create child widgets for the app."""
         yield Header()
-        #yield DirectoryTree("./")
         with VerticalGroup(id = "main"):
             yield self.inputgroup
             yield self.outputgroup

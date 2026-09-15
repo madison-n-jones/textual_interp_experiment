@@ -1,0 +1,259 @@
+/* class FilePickerRow */
+FilePickerRow {
+    height: 3;
+    align-vertical: middle;
+}
+
+/* Target the label by class/type instead of specific ID */
+FilePickerRow > Label {
+    width: 22;
+    min-width: 22;
+    height: 3;
+    content-align: center middle;
+    background: $surface;
+    border: tall $border-blurred;
+    &:disabled {
+        color: auto 50%;
+        pointer: not-allowed;
+    }
+}
+
+/* Input expands dynamically to fill the middle space */
+FilePickerRow > Input {
+    width: 1fr;
+}
+
+FilePickerRow > Input.-invalid-file {
+    border: tall $error;
+}
+
+/* Browse/Action button */
+FilePickerRow > SelectFile {
+    width: 16;
+    min-width: 16;
+    height: 3;
+}
+
+
+
+/* class FilePickerModal */
+FilePickerModal {
+    align: center middle;
+    background: rgba(0, 0, 0, 0.5); /* Dim the background */
+}
+
+#modal-container {
+    width: 60%;
+    height: 70%;
+    background: $surface;
+    border: solid $primary;
+    padding: 1 2;
+}
+
+#modal-container Label {
+    margin-bottom: 1;
+    text-style: bold;
+}
+
+
+
+/* class ClearButton */
+ClearButton {
+    width: 4;
+    min-width: 4;
+    height: 3;
+    padding: 0;
+    margin: 0;
+    border: none;
+}
+
+
+
+/* class SourceGroup */
+SourceGroup {
+    height: 3;
+}
+#source_format {
+    width: 22;
+    min-width: 22;
+}
+
+#source_path {
+    width: 1fr;
+}
+#source_path.-invalid-file {
+    border: tall $error;
+}
+
+#select_file_weights {
+    width: 16;
+}
+
+
+
+/* SaveWeightsGroup */
+SaveWeightsGroup {
+    height: 3;
+}
+#save_weights_button {
+    width: 22;
+    min-width: 22;
+}
+
+#save_weights_path {
+    width: 1fr;
+}
+#save_weights_path.-invalid-file {
+    border: tall $error;
+}
+
+#placeholder {
+    width: 16;
+}
+
+
+
+/* class LoadWeights */
+LoadWeights{
+    width: 100%;
+    height: 3;
+}
+
+#load_weights_button {
+    width: 20;
+    margin: 0 1;
+}
+#load_weights_progressbar {
+    margin: 1 2;
+    width: 1fr;
+}
+
+#load_weights_progressbar > Bar {
+    width: 1fr;
+}
+
+#load_weights_progressbar > PercentageStatus {
+    width: 6;
+    text-align: right;
+}
+
+/* 3. Right-align the countdown / ETA timer */
+#load_weights_progressbar > ETAStatus {
+    width: 10;
+    text-align: right;
+}
+
+
+
+/* class InputGroup */
+InputGroup {
+    height: auto;
+    margin: 0;
+    padding: 0;
+}
+LoadWeights {
+    margin: 1 0;
+}
+
+
+
+/* class OptionsGroup */
+OptionsGroup {
+    margin-top: 1;
+    height: auto;
+}
+
+#pool_cap_input  {
+    width: 16;
+}
+
+
+
+/* class RunInterp */
+RunInterp {
+    width: 100%;
+    height: 3;
+}
+
+#run_interp_button {
+    width: 20;
+    margin: 0 1;
+}
+
+ProgressBar {
+    margin: 1 2;
+    width: 1fr;
+}
+
+ProgressBar > Bar {
+    width: 1fr;
+}
+
+ProgressBar > PercentageStatus {
+    width: 6;
+    text-align: right;
+}
+
+ProgressBar > ETAStatus {
+    width: 10;
+    text-align: right;
+}
+
+#progress_bars_vertical {
+    height: 3;
+}
+
+#interp_label {
+    border: vkey $primary;
+    content-align: center middle;
+    height: 3;
+}
+
+
+#write_label {
+    border: vkey $primary;
+    height: 3;
+}
+
+
+
+/* class OutputGroup */
+OutputGroup {
+    height: auto;
+}
+OptionsGroup {
+    margin-top: 1;
+    height: auto;
+}
+RunInterp {
+    margin-top: 1;
+}
+
+
+
+/* class FullWidthLogHeader */
+FullWidthLogHeader {
+    width: 100%;
+    height: 3;
+    background: $boost;
+    border-top: solid $primary;
+    border-bottom: solid $primary;
+    color: $text;
+    text-style: bold;
+    content-align: center middle;  /* Center text across the entire width */
+    margin: 1 0;
+}
+
+
+
+/* class InterpApp */
+#main {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    align-vertical: top;
+}
+
+TextArea {
+    min-height: 1;
+}
