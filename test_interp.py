@@ -203,9 +203,10 @@ class LoadWeights(Horizontal):
         self.parent.execute()
 
 class InputGroup(VerticalGroup):
-    def __init__(self, *args,**kwargs):
+    def __init__(self, app, *args,**kwargs):
         super().__init__(*args,**kwargs)
         #TODO If the ui becomes dynamic, these need to become querries instead of attributes
+        self.text_app = app
         self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target", input_field_id="target_path")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
 
@@ -281,8 +282,8 @@ class InputGroup(VerticalGroup):
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
             else:
-                load_bar =  self.app.query_one("#load_weights_progressbar", ProgressBar)
-                load_pbar = PBar(self.app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
+                load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
                                                                                 and 
                                                                                 self.app.log_interp(f"Weights loaded")))
                 save_weights = False
@@ -384,16 +385,17 @@ class FullWidthLogHeader(Label):
         super().__init__(text, **kwargs)
 
 class PBar:
-    def __init__(self, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
+    def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
         super().__init__()
+        self.text_app = app
         self.pbar = pbar
         self.call_back = call_back
     
     def update(self, amount: int = 1):
-        self.app.call_from_thread(self.pbar.advance, amount)
+        self.text_app.call_from_thread(self.pbar.advance, amount)
 
         if self.call_back:
-            self.app.call_from_thread(self.call_back)
+            self.text_app.call_from_thread(self.call_back)
 
 class InterpApp(App):
     """A Textual app to manage stopwatches."""
