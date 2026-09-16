@@ -59,12 +59,9 @@ FilePickerModal {
 
 /* class ClearButton */
 ClearButton {
-    width: 4;
-    min-width: 4;
+    width: 16;
+    min-width: 16;
     height: 3;
-    padding: 0;
-    margin: 0;
-    border: none;
 }
 
 
