@@ -9,7 +9,7 @@ from textual.screen import ModalScreen
 import os,time
 from pathlib import Path
 from typing import Iterable
-import cstorm_utils as cs
+import cstorm_utils.interp.stacks as cu
 
 #TODO This can almost certianly be handled with input validators
 class FileValidator:
@@ -196,7 +196,7 @@ class SaveWeightsGroup(Horizontal,FileValidator):
 class LoadWeights(Horizontal):
     def compose(self):
         yield Button("Load weights",id = "load_weights_button",variant="success")
-        yield ProgressBar(total=100, id = "load_weights_progressbar")
+        yield ProgressBar(total=3, id = "load_weights_progressbar")
 
     def on_button_pressed(self):
         self.query_one("#load_weights_progressbar").update(progress = 0)
@@ -281,14 +281,23 @@ class InputGroup(VerticalGroup):
             save_weights_checked = self.query_one("#save_weights_button").value
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
+                self.text_app.query_one("#load_weights_progressbar").update(total=10)
             else:
-                load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
-                load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                                and 
-                                                                                self.app.log_interp(f"Weights loaded")))
                 save_weights = False
-                unstruct_kwargs,target_kwargs,target_grd_key = cs.interp.stacks.read_sources(source_grd, target_grd, pbar=load_pbar)
-            weights = None
+
+            load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
+            load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                            and 
+                                                                            self.app.log_interp(f"Updating PBar step...")))
+            self.app.log_interp(f"Beginning to read sources...")
+            unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
+            self.app.log_interp(f"Done reading sources!!!")
+            weights={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
+            load_bar.advance(1)
+            if save_weights_checked:
+                self.app.log_interp(f"Saving Weights...")
+                weights.save(save_weights, pbar=load_pbar)
+                self.app.log_interp(f"Weights saved!!!")
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
 
