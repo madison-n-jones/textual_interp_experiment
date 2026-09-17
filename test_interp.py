@@ -70,7 +70,7 @@ class FilePickerRow(Horizontal,FileValidator):
         placeholder: str = "/path/to/file",
         initial_value: str = "",
         tooltip: str = "",
-        input_field_id: str = "",
+        input_field_id: str | None = None,
         **kwargs,
     ) -> None:
         super().__init__(**kwargs)
@@ -78,7 +78,10 @@ class FilePickerRow(Horizontal,FileValidator):
         self.placeholder = placeholder
         self.initial_value = initial_value
         self.tooltip = tooltip
-        self.input_field_id = input_field_id
+        if input_field_id is not None:
+            self.input_field_id = input_field_id
+        else:
+            self.input_field_id = f"{self.id}_path"
 
     def compose(self) -> ComposeResult:
         yield Label(self.label_text)
@@ -95,16 +98,20 @@ class FilePickerModal(ModalScreen[Path]):
     """A pop-up window containing a directory browser.
         Displaying CWD only.
     """
+    BINDINGS = [("q", "close_modal", "Quit")]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-container"):
-            yield Label("Select a File") #add option to escape pop up screen later
+            yield Label("Select a File (or press 'q' to close)") 
             yield FilteredDirectoryTree("./")
 
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         """Dismiss the modal screen and return the chosen file path."""
         event.stop()
         self.dismiss(event.path)
+    
+    def action_close_modal(self) -> None:
+        self.app.pop_screen()
 
 class SelectFile(Button,FileValidator): 
     """ Creating widget to select files from directory tree."""
@@ -127,7 +134,7 @@ class SelectFile(Button,FileValidator):
         self.app.push_screen(FilePickerModal(), callback=self.handle_file_chosen)
 
     def handle_file_chosen(self, chosen_file: Path | None) -> None:
-        if chosen_file:  # Verify the user didn't hit escape or cancel (add bindings later)
+        if chosen_file:
             chosen_file_path = self.screen.query_one(f"#{self.input_field_id}", Input)
             chosen_file_path.value = str(chosen_file)
 
@@ -207,7 +214,7 @@ class InputGroup(VerticalGroup):
         super().__init__(*args,**kwargs)
         #TODO If the ui becomes dynamic, these need to become querries instead of attributes
         self.text_app = app
-        self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target", input_field_id="target_path")
+        self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
 
     mode = reactive("grd")
@@ -270,8 +277,17 @@ class InputGroup(VerticalGroup):
 
     @work(thread=True)
     def execute(self):
+        load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
+        load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                            and 
+                                                                            self.app.log_interp(f"Updating PBar step...")))
+
         if self.mode == "wts":
+            self.text_app.query_one("#load_weights_progressbar").update(total=2)
+            load_bar.advance(1)
             weights = self.query_one("#source_path").value
+            weights=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
+            load_bar.advance(1)
             source_grd = None
             target_grd = None
             save_weights = None
@@ -285,10 +301,6 @@ class InputGroup(VerticalGroup):
             else:
                 save_weights = False
 
-            load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
-            load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                            and 
-                                                                            self.app.log_interp(f"Updating PBar step...")))
             self.app.log_interp(f"Beginning to read sources...")
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
