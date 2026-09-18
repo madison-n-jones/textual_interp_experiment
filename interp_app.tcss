@@ -28,9 +28,10 @@ FilePickerRow > Input.-invalid-file {
 }
 
 /* Browse/Action button */
-FilePickerRow > SelectFile {
-    width: 16;
-    min-width: 16;
+SelectFile {
+    width: 7;
+    min-width: 7;
+    max-width: 7;
     height: 3;
 }
 
@@ -53,6 +54,15 @@ FilePickerModal {
 #modal-container Label {
     margin-bottom: 1;
     text-style: bold;
+    
+}
+
+#dir_tree_path {
+    margin-bottom: 1;
+}
+
+#dir_tree_path.-invalid-file {
+    border: tall $error;
 }
 
 
@@ -82,9 +92,7 @@ SourceGroup {
     border: tall $error;
 }
 
-#select_file_weights {
-    width: 16;
-}
+
 
 
 

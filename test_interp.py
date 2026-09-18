@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Iterable
 import cstorm_utils.interp.stacks as cu
 
+#TODO Reconsider the color of buttons. Its very bright on the right side of the screen
 #TODO This can almost certianly be handled with input validators
 class FileValidator:
     """
@@ -25,8 +26,8 @@ class FileValidator:
             self.parent.paths_ready[self.id] = ready
             self.parent.mutate_reactive(self.parent.__class__.paths_ready)
 
-    def on_input_blurred(self, event: Input.Blurred) -> None:
-        self.check_file_path(event.input)
+    #def on_input_blurred(self, event: Input.Blurred) -> None:
+    #    self.check_file_path(event.input)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.check_file_path(event.input)
@@ -92,18 +93,31 @@ class FilePickerRow(Horizontal,FileValidator):
 class FilteredDirectoryTree(DirectoryTree):
     """ Probably unnecessary method to ignore hidden files/directories from tree."""
     def filter_paths(self, paths: Iterable[Path]) -> Iterable[Path]:
-        return [path for path in paths if not path.name.startswith(".")]
+        return [path for path in paths if not path.name.startswith(".") or path == ".."]
 
 class FilePickerModal(ModalScreen[Path]):
     """A pop-up window containing a directory browser.
         Displaying CWD only.
     """
-    BINDINGS = [("q", "close_modal", "Quit")]
+    BINDINGS = [("q", "close_modal", "Quit"),
+                ("u", "up_dir", "Go up one dir")]
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-container"):
-            yield Label("Select a File (or press 'q' to close)") 
-            yield FilteredDirectoryTree("./")
+            yield Label("Select a File ('u': Up one dir  'q': close)")
+            path = os.getcwd()
+            yield Input(value=path,id = "dir_tree_path") #TODO Add a button horizontal to this to go up one dir
+            dir_tree = FilteredDirectoryTree(path,id = "dir_tree")
+            yield dir_tree
+            dir_tree.focus()
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        path = Path(event.value.strip()).expanduser().resolve()
+        if path.exists():
+            self.query_one("#dir_tree_path").remove_class("-invalid-file")
+            self.query_one("#dir_tree").path = path
+        else:
+            self.query_one("#dir_tree_path").add_class("-invalid-file")
 
     def on_directory_tree_file_selected(self, event: DirectoryTree.FileSelected) -> None:
         """Dismiss the modal screen and return the chosen file path."""
@@ -113,12 +127,20 @@ class FilePickerModal(ModalScreen[Path]):
     def action_close_modal(self) -> None:
         self.app.pop_screen()
 
+    def action_up_dir(self) -> None:
+        dir_tree = self.query_one("#dir_tree")
+        path = Path(dir_tree.path).parent
+        if path != dir_tree.path:
+            dir_tree.path = path
+            self.query_one("#dir_tree_path").value = str(path)
+
+
 class SelectFile(Button,FileValidator): 
     """ Creating widget to select files from directory tree."""
     def __init__(
         self,
         input_field_id: str,
-        label: str = "Select File:",
+        label: str = "\U0001F4C2",
         id: str | None = None
         ) -> None:
 
@@ -137,6 +159,7 @@ class SelectFile(Button,FileValidator):
         if chosen_file:
             chosen_file_path = self.screen.query_one(f"#{self.input_field_id}", Input)
             chosen_file_path.value = str(chosen_file)
+            chosen_file_path.post_message(Input.Submitted(chosen_file_path, chosen_file_path.value))
 
 
 class ClearButton(Button):
@@ -275,6 +298,7 @@ class InputGroup(VerticalGroup):
         yield self.saveweightsgroup
         yield LoadWeights(id = "load_weights")
 
+    #TODO Move this out and split up the function in cstorm_utils
     @work(thread=True)
     def execute(self):
         load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
@@ -312,6 +336,7 @@ class InputGroup(VerticalGroup):
                 self.app.log_interp(f"Weights saved!!!")
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
+        setattr(self.app, "disable_output", False)
 
 class OptionsGroup(Horizontal):
     def compose(self):
