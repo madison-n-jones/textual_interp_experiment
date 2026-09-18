@@ -213,7 +213,7 @@ class InputGroup(VerticalGroup):
     def __init__(self, app, *args,**kwargs):
         super().__init__(*args,**kwargs)
         #TODO If the ui becomes dynamic, these need to become querries instead of attributes
-        self.text_app = app
+        self.interp_app_ref = app
         self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
 
@@ -277,16 +277,16 @@ class InputGroup(VerticalGroup):
 
     @work(thread=True)
     def execute(self):
-        load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
-        load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+        load_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
+        load_pbar = PBar(self.interp_app_ref, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
                                                                             and 
                                                                             self.app.log_interp(f"Updating PBar step...")))
 
         if self.mode == "wts":
-            self.text_app.query_one("#load_weights_progressbar").update(total=2)
+            self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
             load_pbar.update()
             weights = self.query_one("#source_path").value
-            weights=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
+            terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
             load_pbar.update()
             source_grd = None
             target_grd = None
@@ -297,7 +297,7 @@ class InputGroup(VerticalGroup):
             save_weights_checked = self.query_one("#save_weights_button").value
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
-                self.text_app.query_one("#load_weights_progressbar").update(total=10)
+                self.interp_app_ref.query_one("#load_weights_progressbar").update(total=10)
             else:
                 save_weights = False
 
@@ -305,15 +305,16 @@ class InputGroup(VerticalGroup):
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
             
-            weights={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
+            terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
             load_pbar.update()
 
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
-                weights.save(save_weights, pbar=load_pbar)
+                terp.save(save_weights, pbar=load_pbar)
                 self.app.log_interp(f"Weights saved!!!")
-
+        update_kwargs(interp_kwargs, source_grd, target_grd, weights_path=weights, save_weights)
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
+        self.app.log_interp(f"Interp kwargs :: {interp_kwargs}")
 
 class OptionsGroup(Horizontal):
     def compose(self):
@@ -359,6 +360,9 @@ class RunInterp(Horizontal):
 #                                                        )))
 
 class OutputGroup(VerticalGroup):
+    def __init__(self, app, *args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.interp_app_ref = app
 
     paths_ready = reactive({"source_data":None})
 
@@ -380,16 +384,25 @@ class OutputGroup(VerticalGroup):
 
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
-        self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
-        interp_bar =  self.text_app.query_one("#interp_progress_bar", ProgressBar)
-        interp_pbar = PBar(self.text_app, interp_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                            and 
-                                                                            self.app.log_interp(f"Updating PBar step...")))
+        #self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
+        interp_bar =  self.interp_app_ref.query_one("#interp_progress_bar", ProgressBar)
+        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                             and
+                                                                             self.app.log_interp(f"Updating PBar step...")))
+
+        write_bar =  self.interp_app_ref.query_one("#write_progress_bar", ProgressBar)
+        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                             and
+                                                                             self.app.log_interp(f"Updating PBar step...")))
+
+
+        self.app.log_interp(f"INTERP COMPLETE ?!?!")
+        
 
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
-        self.app._advance_pbar(self.query_one("#write_progress_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
-
+        #self.app._advance_pbar(self.query_one("#write_progress_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
+        
     def execute(self):
         data_path = self.query_one("#source_data_path").value
         out_path = self.query_one("#output_path").value
@@ -401,7 +414,7 @@ class OutputGroup(VerticalGroup):
         if interp_type is Select.NULL:
             #interp_type = None
             method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
-            #interp_type=method(cu.CSTORM_U2U, data_path=data_path)
+            interp_type=method
             
         #elif interp_type is "depth":
         
@@ -423,21 +436,39 @@ class FullWidthLogHeader(Label):
 class PBar:
     def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
         super().__init__()
-        self.text_app = app
+        self.interp_app_ref = app
         self.pbar = pbar
         self.call_back = call_back
     
     def update(self, amount: int = 1):
-        self.text_app.call_from_thread(self.pbar.advance, amount)
+        self.interp_app_ref.call_from_thread(self.pbar.advance, amount)
 
         if self.call_back:
-            self.text_app.call_from_thread(self.call_back)
+            self.interp_app_ref.call_from_thread(self.call_back)
 
     def close(self):
         ## textual automatically closes pbar when total == progress
         ## adding safety net regardless
         current_step = self.query_one(self.pbar).progress
-        self.text_app.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+        self.interp_app_ref.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+
+interp_kwargs = {
+    "source_grd" : None,
+    "target_grd" : None,
+    "data_path" : None,
+    "weights_path" : None,
+    "out_path" : "interp.out",
+    "save_weights" : None,
+    "interp_type" : None,
+    "fixdry" : 0,
+    "pool_cap" : None,
+    "quite" : False,
+    "interp_pbar" : None,
+    "write_pbar" : None
+}
+
+def update_kwargs(interp_kwargs, **kwargs):
+    interp_kwargs.update(kwargs)
 
 class InterpApp(App):
     """A Textual app to manage stopwatches."""
@@ -464,7 +495,7 @@ class InterpApp(App):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.inputgroup = InputGroup(self)
-        self.outputgroup = OutputGroup()
+        self.outputgroup = OutputGroup(self)
         self.textarea = Log()
 
     def compose(self) -> ComposeResult:
