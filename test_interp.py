@@ -284,10 +284,10 @@ class InputGroup(VerticalGroup):
 
         if self.mode == "wts":
             self.text_app.query_one("#load_weights_progressbar").update(total=2)
-            load_bar.advance(1)
+            load_pbar.update()
             weights = self.query_one("#source_path").value
             weights=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
-            load_bar.advance(1)
+            load_pbar.update()
             source_grd = None
             target_grd = None
             save_weights = None
@@ -304,8 +304,10 @@ class InputGroup(VerticalGroup):
             self.app.log_interp(f"Beginning to read sources...")
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
+            
             weights={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
-            load_bar.advance(1)
+            load_pbar.update()
+
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
                 weights.save(save_weights, pbar=load_pbar)
@@ -338,21 +340,21 @@ class RunInterp(Horizontal):
         with Horizontal(id = "progress_bars_vertical"):
             #with Horizontal(id = "interp_horizontal_group"):
             yield Label("Interpolation",id = "interp_label")
-            yield ProgressBar(total=100, id = "interp_progres_bar")
+            yield ProgressBar(total=100, id = "interp_progress_bar")
 
             #with Horizontal(id = "write_horizontal_group"):
             yield Label("Writing",id = "write_label")
-            yield ProgressBar(total=100, id = "write_progres_bar")
+            yield ProgressBar(total=100, id = "write_progress_bar")
 
     def on_button_pressed(self):
-            self.query_one("#interp_progres_bar").update(progress = 0)
-            self.query_one("#write_progres_bar").update(progress = 0)
+            self.query_one("#interp_progress_bar").update(progress = 0)
+            self.query_one("#write_progress_bar").update(progress = 0)
             self.parent.execute()
-#            self.app._advance_pbar(self.query_one("#interp_progres_bar"), # This is the most shit soup sandwich of a line of code I have ever written, but it works 
+#            self.app._advance_pbar(self.query_one("#interp_progress_bar"), # This is the most shit soup sandwich of a line of code I have ever written, but it works 
 #                                   call_back = lambda: (self.app.log_interp("Interped data\n")
 #                                                        or
 #                                                        self.app._advance_pbar(
-#                                                            self.query_one("#write_progres_bar"),
+#                                                            self.query_one("#write_progress_bar"),
 #                                                            call_back = lambda: self.app.log_interp("Wrote data\n")
 #                                                        )))
 
@@ -378,11 +380,15 @@ class OutputGroup(VerticalGroup):
 
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
-        self.app._advance_pbar(self.query_one("#interp_progres_bar"),call_back = self._execute_write)
-                
+        self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
+        interp_bar =  self.text_app.query_one("#interp_progress_bar", ProgressBar)
+        interp_pbar = PBar(self.text_app, interp_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
+                                                                            and 
+                                                                            self.app.log_interp(f"Updating PBar step...")))
+
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
-        self.app._advance_pbar(self.query_one("#write_progres_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
+        self.app._advance_pbar(self.query_one("#write_progress_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
 
     def execute(self):
         data_path = self.query_one("#source_data_path").value
@@ -391,8 +397,17 @@ class OutputGroup(VerticalGroup):
         if fix_dry is Select.NULL:
             fix_dry = 0
         interp_type = self.query_one("#interp_type_select").value
+        ### making changes here, if interp_type not selected, use guess method function first, otherwise use function for interp method
         if interp_type is Select.NULL:
-                    interp_type = None
+            #interp_type = None
+            method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+            #interp_type=method(cu.CSTORM_U2U, data_path=data_path)
+            
+        #elif interp_type is "depth":
+        
+        #elif interp_type is "extreme":
+        
+        #elif interp_type is "timed":
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
@@ -418,6 +433,12 @@ class PBar:
         if self.call_back:
             self.text_app.call_from_thread(self.call_back)
 
+    def close(self):
+        ## textual automatically closes pbar when total == progress
+        ## adding safety net regardless
+        current_step = self.query_one(self.pbar).progress
+        self.text_app.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+
 class InterpApp(App):
     """A Textual app to manage stopwatches."""
     CSS_PATH = "interp_app.tcss"
@@ -425,6 +446,16 @@ class InterpApp(App):
 
     def watch_disable_output(self, disable_output):
         self.outputgroup.disabled = disable_output
+
+    ## adding back for testing purposes
+    @work(thread=True)
+    def _advance_pbar(self,pbar: ProgressBar, call_back = None) -> None:
+        for _ in range(pbar.total):
+            self.call_from_thread(pbar.advance, 1)
+            time.sleep(.05)
+
+        if call_back:
+            self.call_from_thread(call_back)
 
     BINDINGS = [
                 Binding("ctrl+d", "quit", "Quit", priority=True),
