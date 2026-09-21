@@ -295,6 +295,7 @@ class InputGroup(VerticalGroup):
             source_grd = self.query_one("#source_path").value
             target_grd = self.query_one("#target_path").value
             save_weights_checked = self.query_one("#save_weights_button").value
+            weights = None
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
                 self.interp_app_ref.query_one("#load_weights_progressbar").update(total=10)
@@ -307,13 +308,14 @@ class InputGroup(VerticalGroup):
             
             terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
             load_pbar.update()
+            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
 
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
                 terp.save(save_weights, pbar=load_pbar)
                 self.app.log_interp(f"Weights saved!!!")
-        update_kwargs(interp_kwargs, source_grd, target_grd, weights_path=weights, save_weights)
-        self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
+            
+        self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights_path}\n")
         self.app.log_interp(f"Interp kwargs :: {interp_kwargs}")
 
 class OptionsGroup(Horizontal):
@@ -395,9 +397,8 @@ class OutputGroup(VerticalGroup):
                                                                              and
                                                                              self.app.log_interp(f"Updating PBar step...")))
 
-
-        self.app.log_interp(f"INTERP COMPLETE ?!?!")
-        
+        update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
+        ## terp(**kwargs) would be here
 
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
@@ -411,10 +412,10 @@ class OutputGroup(VerticalGroup):
             fix_dry = 0
         interp_type = self.query_one("#interp_type_select").value
         ### making changes here, if interp_type not selected, use guess method function first, otherwise use function for interp method
-        if interp_type is Select.NULL:
+        #if interp_type is Select.NULL:
             #interp_type = None
-            method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
-            interp_type=method
+            #method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+            #interp_type=method.__name__
             
         #elif interp_type is "depth":
         
@@ -423,6 +424,7 @@ class OutputGroup(VerticalGroup):
         #elif interp_type is "timed":
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
+        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fix_dry=fix_dry, quite=quite, compress=compress)
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
         
 
@@ -456,12 +458,12 @@ interp_kwargs = {
     "source_grd" : None,
     "target_grd" : None,
     "data_path" : None,
-    "weights_path" : None,
+    #"weights_path" : None,
     "out_path" : "interp.out",
     "save_weights" : None,
     "interp_type" : None,
     "fixdry" : 0,
-    "pool_cap" : None,
+    #"pool_cap" : None,
     "quite" : False,
     "interp_pbar" : None,
     "write_pbar" : None
