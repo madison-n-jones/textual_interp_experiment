@@ -48,7 +48,12 @@ class FileValidator:
             input_widget.tooltip = self._original_tooltip
             self.ready = True
             return True
+        elif input_widget.has_class("-new-file"):
+            input_widget.tooltip = f"File does not currently exist. Creating file..."
+            self.ready = True
+            return True
         else:
+            input_widget.remove_class("-invalid-file")
             input_widget.add_class("-invalid-file")
             #input_widget.tooltip = f"File Not Found{'\n' + self._original_tooltip if self._original_tooltip is not None else ''}" ## syntax error in Python versions 3.11 and lower
             input_widget.tooltip = f"File Not Found{self._original_tooltip if self._original_tooltip is not None else ''}" ## switch to this line unless using 3.12+
@@ -57,13 +62,6 @@ class FileValidator:
 
 class FilePickerRow(Horizontal,FileValidator):
     """A reusable, self-contained row with an etched label, an input, and a browse button."""
-
-    # Custom message emitted when this specific row's button is clicked
-    """ class Selected(Message):
-        def __init__(self, row: "FilePickerRow") -> None:
-            super().__init__()
-            self.row = row """
-
     def __init__(
         self,
         label_text: str,
@@ -124,8 +122,7 @@ class SelectFile(Button,FileValidator):
 
         super().__init__(
             label=label,
-            id=id,
-            variant="primary"
+            id=id
         )
 
         self.input_field_id = input_field_id
@@ -150,7 +147,6 @@ class ClearButton(Button):
 
         super().__init__(
             label=label,
-            variant="error",
             **kwargs
         )
         self.target_input = target_input
@@ -183,22 +179,45 @@ class SaveWeightsGroup(Horizontal,FileValidator):
         self.ready = None
         yield Checkbox("Save Weights",id = "save_weights_button")
         yield Input(placeholder = "weights.nc", id = "save_weights_path", tooltip = "Path to the location the file should be saved.")
-        yield Static(classes="fixed-spacer",id = "placeholder")
+        yield Select([
+                ("New File",True),
+                ("Existing File",False)
+            ],
+            prompt = "New or Existing File?",
+            id = "file_type_select")
 
     def on_mount(self):
         self.query_one("#save_weights_path").disabled = True
+        self.query_one("#file_type_select").disabled = True
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         nput = self.query_one(Input)
+        f_type = self.query_one("#file_type_select", Select)
         if event.value:
             nput.disabled = False
+            f_type.disabled = False
             self.check_file_path(nput)
             self.parent.paths_ready["save"] = self.ready
         else:
-            nput.remove_class("-valid-file", "-invalid-file")
+            nput.remove_class("-valid-file", "-invalid-file", "-new-file")
             nput.disabled = True
+            f_type.disabled = True
             self.parent.paths_ready["save"] = None
+        self.parent.mutate_reactive(self.parent.__class__.paths_ready) 
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        nput = self.query_one("#save_weights_path", Input)
+        if event.value is True:
+            nput.remove_class("-valid-file", "-invalid-file")
+            nput.add_class("-new-file")
+            self.check_file_path(nput)
+            self.parent.paths_ready["save"] = self.ready
+        else:
+            nput.remove_class("-valid-file", "-invalid-file", "-new-file")
+            self.check_file_path(nput)
+            self.parent.paths_ready["save"] = self.ready
         self.parent.mutate_reactive(self.parent.__class__.paths_ready)
+
 
 class LoadWeights(Horizontal):
     def compose(self):
@@ -278,9 +297,7 @@ class InputGroup(VerticalGroup):
     @work(thread=True)
     def execute(self):
         load_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
-        load_pbar = PBar(self.interp_app_ref, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                            and 
-                                                                            self.app.log_interp(f"Updating PBar step...")))
+        load_pbar = PBar(self.interp_app_ref, load_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         if self.mode == "wts":
             self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
@@ -291,6 +308,7 @@ class InputGroup(VerticalGroup):
             source_grd = None
             target_grd = None
             save_weights = None
+            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
         else:
             source_grd = self.query_one("#source_path").value
             target_grd = self.query_one("#target_path").value
@@ -316,6 +334,7 @@ class InputGroup(VerticalGroup):
                 self.app.log_interp(f"Weights saved!!!")
             
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights_path}\n")
+        not setattr(self.app, "disable_output", False)
         self.app.log_interp(f"Interp kwargs :: {interp_kwargs}")
 
 class OptionsGroup(Horizontal):
@@ -388,14 +407,10 @@ class OutputGroup(VerticalGroup):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
         #self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
         interp_bar =  self.interp_app_ref.query_one("#interp_progress_bar", ProgressBar)
-        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                             and
-                                                                             self.app.log_interp(f"Updating PBar step...")))
+        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         write_bar =  self.interp_app_ref.query_one("#write_progress_bar", ProgressBar)
-        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                             and
-                                                                             self.app.log_interp(f"Updating PBar step...")))
+        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
         ## terp(**kwargs) would be here
