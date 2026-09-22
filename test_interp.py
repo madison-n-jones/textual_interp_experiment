@@ -49,7 +49,12 @@ class FileValidator:
             input_widget.tooltip = self._original_tooltip
             self.ready = True
             return True
+        elif input_widget.has_class("-new-file"):
+            input_widget.tooltip = f"File does not currently exist. Creating file..."
+            self.ready = True
+            return True
         else:
+            input_widget.remove_class("-invalid-file")
             input_widget.add_class("-invalid-file")
             #input_widget.tooltip = f"File Not Found{'\n' + self._original_tooltip if self._original_tooltip is not None else ''}" ## syntax error in Python versions 3.11 and lower
             input_widget.tooltip = f"File Not Found{self._original_tooltip if self._original_tooltip is not None else ''}" ## switch to this line unless using 3.12+
@@ -58,13 +63,6 @@ class FileValidator:
 
 class FilePickerRow(Horizontal,FileValidator):
     """A reusable, self-contained row with an etched label, an input, and a browse button."""
-
-    # Custom message emitted when this specific row's button is clicked
-    """ class Selected(Message):
-        def __init__(self, row: "FilePickerRow") -> None:
-            super().__init__()
-            self.row = row """
-
     def __init__(
         self,
         label_text: str,
@@ -146,8 +144,7 @@ class SelectFile(Button,FileValidator):
 
         super().__init__(
             label=label,
-            id=id,
-            variant="primary"
+            id=id
         )
 
         self.input_field_id = input_field_id
@@ -173,7 +170,6 @@ class ClearButton(Button):
 
         super().__init__(
             label=label,
-            variant="error",
             **kwargs
         )
         self.target_input = target_input
@@ -206,22 +202,45 @@ class SaveWeightsGroup(Horizontal,FileValidator):
         self.ready = None
         yield Checkbox("Save Weights",id = "save_weights_button")
         yield Input(placeholder = "weights.nc", id = "save_weights_path", tooltip = "Path to the location the file should be saved.")
-        yield Static(classes="fixed-spacer",id = "placeholder")
+        yield Select([
+                ("New File",True),
+                ("Existing File",False)
+            ],
+            prompt = "New or Existing File?",
+            id = "file_type_select")
 
     def on_mount(self):
         self.query_one("#save_weights_path").disabled = True
+        self.query_one("#file_type_select").disabled = True
 
     def on_checkbox_changed(self, event: Checkbox.Changed) -> None:
         nput = self.query_one(Input)
+        f_type = self.query_one("#file_type_select", Select)
         if event.value:
             nput.disabled = False
+            f_type.disabled = False
             self.check_file_path(nput)
             self.parent.paths_ready["save"] = self.ready
         else:
-            nput.remove_class("-valid-file", "-invalid-file")
+            nput.remove_class("-valid-file", "-invalid-file", "-new-file")
             nput.disabled = True
+            f_type.disabled = True
             self.parent.paths_ready["save"] = None
+        self.parent.mutate_reactive(self.parent.__class__.paths_ready) 
+
+    def on_select_changed(self, event: Select.Changed) -> None:
+        nput = self.query_one("#save_weights_path", Input)
+        if event.value is True:
+            nput.remove_class("-valid-file", "-invalid-file")
+            nput.add_class("-new-file")
+            self.check_file_path(nput)
+            self.parent.paths_ready["save"] = self.ready
+        else:
+            nput.remove_class("-valid-file", "-invalid-file", "-new-file")
+            self.check_file_path(nput)
+            self.parent.paths_ready["save"] = self.ready
         self.parent.mutate_reactive(self.parent.__class__.paths_ready)
+
 
 class LoadWeights(Horizontal):
     def compose(self):
@@ -236,7 +255,7 @@ class InputGroup(VerticalGroup):
     def __init__(self, app, *args,**kwargs):
         super().__init__(*args,**kwargs)
         #TODO If the ui becomes dynamic, these need to become querries instead of attributes
-        self.text_app = app
+        self.interp_app_ref = app
         self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
 
@@ -301,38 +320,41 @@ class InputGroup(VerticalGroup):
     #TODO Move this out and split up the function in cstorm_utils
     @work(thread=True)
     def execute(self):
-        load_bar =  self.text_app.query_one("#load_weights_progressbar", ProgressBar)
-        load_pbar = PBar(self.text_app, load_bar, call_back = lambda: (not setattr(self.app, "disable_output", False)
-                                                                            and 
-                                                                            self.app.log_interp(f"Updating PBar step...")))
+        load_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
+        load_pbar = PBar(self.interp_app_ref, load_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         if self.mode == "wts":
-            self.text_app.query_one("#load_weights_progressbar").update(total=2)
-            load_bar.advance(1)
+            self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
+            load_pbar.update()
             weights = self.query_one("#source_path").value
-            weights=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
-            load_bar.advance(1)
+            terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
+            load_pbar.update()
             source_grd = None
             target_grd = None
             save_weights = None
+            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
         else:
             source_grd = self.query_one("#source_path").value
             target_grd = self.query_one("#target_path").value
             save_weights_checked = self.query_one("#save_weights_button").value
+            weights = None
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
-                self.text_app.query_one("#load_weights_progressbar").update(total=10)
+                self.interp_app_ref.query_one("#load_weights_progressbar").update(total=10)
             else:
                 save_weights = False
 
             self.app.log_interp(f"Beginning to read sources...")
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
-            weights={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
-            load_bar.advance(1)
+            
+            terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
+            load_pbar.update()
+            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
+
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
-                weights.save(save_weights, pbar=load_pbar)
+                terp.save(save_weights, pbar=load_pbar)
                 self.app.log_interp(f"Weights saved!!!")
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
@@ -363,25 +385,28 @@ class RunInterp(Horizontal):
         with Horizontal(id = "progress_bars_vertical"):
             #with Horizontal(id = "interp_horizontal_group"):
             yield Label("Interpolation",id = "interp_label")
-            yield ProgressBar(total=100, id = "interp_progres_bar")
+            yield ProgressBar(total=100, id = "interp_progress_bar")
 
             #with Horizontal(id = "write_horizontal_group"):
             yield Label("Writing",id = "write_label")
-            yield ProgressBar(total=100, id = "write_progres_bar")
+            yield ProgressBar(total=100, id = "write_progress_bar")
 
     def on_button_pressed(self):
-            self.query_one("#interp_progres_bar").update(progress = 0)
-            self.query_one("#write_progres_bar").update(progress = 0)
+            self.query_one("#interp_progress_bar").update(progress = 0)
+            self.query_one("#write_progress_bar").update(progress = 0)
             self.parent.execute()
-#            self.app._advance_pbar(self.query_one("#interp_progres_bar"), # This is the most shit soup sandwich of a line of code I have ever written, but it works 
+#            self.app._advance_pbar(self.query_one("#interp_progress_bar"), # This is the most shit soup sandwich of a line of code I have ever written, but it works 
 #                                   call_back = lambda: (self.app.log_interp("Interped data\n")
 #                                                        or
 #                                                        self.app._advance_pbar(
-#                                                            self.query_one("#write_progres_bar"),
+#                                                            self.query_one("#write_progress_bar"),
 #                                                            call_back = lambda: self.app.log_interp("Wrote data\n")
 #                                                        )))
 
 class OutputGroup(VerticalGroup):
+    def __init__(self, app, *args,**kwargs):
+        super().__init__(*args,**kwargs)
+        self.interp_app_ref = app
 
     paths_ready = reactive({"source_data":None})
 
@@ -403,12 +428,20 @@ class OutputGroup(VerticalGroup):
 
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
-        self.app._advance_pbar(self.query_one("#interp_progres_bar"),call_back = self._execute_write)
-                
+        #self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
+        interp_bar =  self.interp_app_ref.query_one("#interp_progress_bar", ProgressBar)
+        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
+
+        write_bar =  self.interp_app_ref.query_one("#write_progress_bar", ProgressBar)
+        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
+
+        update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
+        ## terp(**kwargs) would be here
+
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
-        self.app._advance_pbar(self.query_one("#write_progres_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
-
+        #self.app._advance_pbar(self.query_one("#write_progress_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
+        
     def execute(self):
         data_path = self.query_one("#source_data_path").value
         out_path = self.query_one("#output_path").value
@@ -416,10 +449,20 @@ class OutputGroup(VerticalGroup):
         if fix_dry is Select.NULL:
             fix_dry = 0
         interp_type = self.query_one("#interp_type_select").value
-        if interp_type is Select.NULL:
-                    interp_type = None
+        ### making changes here, if interp_type not selected, use guess method function first, otherwise use function for interp method
+        #if interp_type is Select.NULL:
+            #interp_type = None
+            #method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+            #interp_type=method.__name__
+            
+        #elif interp_type is "depth":
+        
+        #elif interp_type is "extreme":
+        
+        #elif interp_type is "timed":
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
+        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fix_dry=fix_dry, quite=quite, compress=compress)
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
         
 
@@ -433,15 +476,39 @@ class FullWidthLogHeader(Label):
 class PBar:
     def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
         super().__init__()
-        self.text_app = app
+        self.interp_app_ref = app
         self.pbar = pbar
         self.call_back = call_back
     
     def update(self, amount: int = 1):
-        self.text_app.call_from_thread(self.pbar.advance, amount)
+        self.interp_app_ref.call_from_thread(self.pbar.advance, amount)
 
         if self.call_back:
-            self.text_app.call_from_thread(self.call_back)
+            self.interp_app_ref.call_from_thread(self.call_back)
+
+    def close(self):
+        ## textual automatically closes pbar when total == progress
+        ## adding safety net regardless
+        current_step = self.query_one(self.pbar).progress
+        self.interp_app_ref.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+
+interp_kwargs = {
+    "source_grd" : None,
+    "target_grd" : None,
+    "data_path" : None,
+    #"weights_path" : None,
+    "out_path" : "interp.out",
+    "save_weights" : None,
+    "interp_type" : None,
+    "fixdry" : 0,
+    #"pool_cap" : None,
+    "quite" : False,
+    "interp_pbar" : None,
+    "write_pbar" : None
+}
+
+def update_kwargs(interp_kwargs, **kwargs):
+    interp_kwargs.update(kwargs)
 
 class InterpApp(App):
     """A Textual app to manage stopwatches."""
@@ -451,6 +518,16 @@ class InterpApp(App):
     def watch_disable_output(self, disable_output):
         self.outputgroup.disabled = disable_output
 
+    ## adding back for testing purposes
+    @work(thread=True)
+    def _advance_pbar(self,pbar: ProgressBar, call_back = None) -> None:
+        for _ in range(pbar.total):
+            self.call_from_thread(pbar.advance, 1)
+            time.sleep(.05)
+
+        if call_back:
+            self.call_from_thread(call_back)
+
     BINDINGS = [
                 Binding("ctrl+d", "quit", "Quit", priority=True),
                 Binding("escape", "unfocus", "Unfocus", priority=True),]
@@ -458,7 +535,7 @@ class InterpApp(App):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.inputgroup = InputGroup(self)
-        self.outputgroup = OutputGroup()
+        self.outputgroup = OutputGroup(self)
         self.textarea = Log()
 
     def compose(self) -> ComposeResult:
