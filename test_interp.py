@@ -10,6 +10,7 @@ import os,time
 from pathlib import Path
 from typing import Iterable
 import cstorm_utils.interp.stacks as cu
+import threading
 
 #TODO Reconsider the color of buttons. Its very bright on the right side of the screen
 #TODO This can almost certianly be handled with input validators
@@ -258,6 +259,7 @@ class InputGroup(VerticalGroup):
         self.interp_app_ref = app
         self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
+        self.terp=None
 
     mode = reactive("grd")
 
@@ -327,7 +329,7 @@ class InputGroup(VerticalGroup):
             self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
             load_pbar.update()
             weights = self.query_one("#source_path").value
-            terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
+            self.terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
             load_pbar.update()
             source_grd = None
             target_grd = None
@@ -348,13 +350,13 @@ class InputGroup(VerticalGroup):
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
             
-            terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
+            self.terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
             load_pbar.update()
             update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
 
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
-                terp.save(save_weights, pbar=load_pbar)
+                self.terp.save(save_weights, pbar=load_pbar)
                 self.app.log_interp(f"Weights saved!!!")
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
@@ -404,9 +406,10 @@ class RunInterp(Horizontal):
 #                                                        )))
 
 class OutputGroup(VerticalGroup):
-    def __init__(self, app, *args,**kwargs):
+    def __init__(self, app, input_terp, *args,**kwargs):
         super().__init__(*args,**kwargs)
         self.interp_app_ref = app
+        self.input_terp=input_terp
 
     paths_ready = reactive({"source_data":None})
 
@@ -425,7 +428,8 @@ class OutputGroup(VerticalGroup):
         yield output_path
         yield OptionsGroup(id = "options_group")
         yield RunInterp(id = "run_interp")
-
+    
+    @work(thread=True)
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
         #self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
@@ -436,7 +440,8 @@ class OutputGroup(VerticalGroup):
         write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
-        ## terp(**kwargs) would be here
+        self.input_terp.terp(**interp_kwargs) ##would be here
+        self.app.log_interp(f"done interpolating!!")
 
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
@@ -462,9 +467,12 @@ class OutputGroup(VerticalGroup):
         #elif interp_type is "timed":
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
-        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fix_dry=fix_dry, quite=quite, compress=compress)
+        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fixdry=fix_dry, quite=quite, compress=compress)
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
         
+        #def on_worker_state_changed(self, event: Worker.StateChanged) -> None:
+            #"""Called when the worker state changes."""
+            #self.app.log_interp(event)
 
 
 class FullWidthLogHeader(Label):
@@ -474,34 +482,44 @@ class FullWidthLogHeader(Label):
         super().__init__(text, **kwargs)
 
 class PBar:
-    def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
+    def __init__(self, app, pbar: ProgressBar, call_back = None, mode="thread", *args,**kwargs) -> None:
         super().__init__()
         self.interp_app_ref = app
         self.pbar = pbar
         self.call_back = call_back
+        self.mode = mode
     
     def update(self, amount: int = 1):
+        #self.interp_app_ref.log_interp(f"Thread name:: {threading.current_thread().name}")
         self.interp_app_ref.call_from_thread(self.pbar.advance, amount)
 
+        if self.call_back:
+            self.interp_app_ref.call_from_thread(self.call_back)
+    
+    def update_total(self, pbar_total: int):
+        self.interp_app_ref.call_from_thread(self.pbar.update, total=pbar_total)
+        
         if self.call_back:
             self.interp_app_ref.call_from_thread(self.call_back)
 
     def close(self):
         ## textual automatically closes pbar when total == progress
         ## adding safety net regardless
-        current_step = self.query_one(self.pbar).progress
-        self.interp_app_ref.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+        current_step = self.pbar.progress
+        self.interp_app_ref.call_from_thread(self.pbar.update,total=current_step, progress=current_step)
+
 
 interp_kwargs = {
     "source_grd" : None,
     "target_grd" : None,
     "data_path" : None,
-    #"weights_path" : None,
+    "weights_path" : None,
     "out_path" : "interp.out",
     "save_weights" : None,
+    "compress": False,
     "interp_type" : None,
     "fixdry" : 0,
-    #"pool_cap" : None,
+    "pool_cap" : None,
     "quite" : False,
     "interp_pbar" : None,
     "write_pbar" : None
@@ -535,7 +553,7 @@ class InterpApp(App):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.inputgroup = InputGroup(self)
-        self.outputgroup = OutputGroup(self)
+        self.outputgroup = OutputGroup(self, self.inputgroup)
         self.textarea = Log()
 
     def compose(self) -> ComposeResult:
