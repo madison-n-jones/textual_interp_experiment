@@ -26,8 +26,8 @@ class FileValidator:
             self.parent.paths_ready[self.id] = ready
             self.parent.mutate_reactive(self.parent.__class__.paths_ready)
 
-    #def on_input_blurred(self, event: Input.Blurred) -> None:
-    #    self.check_file_path(event.input)
+    def on_input_blurred(self, event: Input.Blurred) -> None:
+        self.check_file_path(event.input)
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         self.check_file_path(event.input)
@@ -102,12 +102,18 @@ class FilePickerModal(ModalScreen[Path]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-container"):
-            yield Label("Select a File ('u': Up one dir  'q': close)")
+            with Horizontal(id="modal-container-header"):
+                yield Label("Select a File")
+                yield Static(classes="fixed-spacer",id = "placeholder")
+                yield Button("Change Directory", id="cd-btn")
+                yield Button("X", id="close-btn")
+                
             path = os.getcwd()
-            yield Input(value=path,id = "dir_tree_path") #TODO Add a button horizontal to this to go up one dir
+            yield Input(value=path,id = "dir_tree_path")
             dir_tree = FilteredDirectoryTree(path,id = "dir_tree")
             yield dir_tree
             dir_tree.focus()
+            yield Footer()
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         path = Path(event.value.strip()).expanduser().resolve()
@@ -131,6 +137,12 @@ class FilePickerModal(ModalScreen[Path]):
         if path != dir_tree.path:
             dir_tree.path = path
             self.query_one("#dir_tree_path").value = str(path)
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "cd-btn":
+            self.action_up_dir()
+        elif event.button.id == "close-btn":
+            self.action_close_modal()
 
 
 class SelectFile(Button,FileValidator): 
@@ -258,6 +270,7 @@ class InputGroup(VerticalGroup):
         self.interp_app_ref = app
         self.targetgroup = FilePickerRow("Target Grid","/path/to/target/grd",id = "target")
         self.saveweightsgroup = SaveWeightsGroup(id = "save")
+        self.terp=None
 
     mode = reactive("grd")
 
@@ -327,7 +340,7 @@ class InputGroup(VerticalGroup):
             self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
             load_pbar.update()
             weights = self.query_one("#source_path").value
-            terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
+            self.terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
             load_pbar.update()
             source_grd = None
             target_grd = None
@@ -348,13 +361,13 @@ class InputGroup(VerticalGroup):
             unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
             self.app.log_interp(f"Done reading sources!!!")
             
-            terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
+            self.terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
             load_pbar.update()
             update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
 
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
-                terp.save(save_weights, pbar=load_pbar)
+                self.terp.save(save_weights, pbar=load_pbar)
                 self.app.log_interp(f"Weights saved!!!")
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
@@ -404,9 +417,10 @@ class RunInterp(Horizontal):
 #                                                        )))
 
 class OutputGroup(VerticalGroup):
-    def __init__(self, app, *args,**kwargs):
+    def __init__(self, app, terp_obj, *args,**kwargs):
         super().__init__(*args,**kwargs)
         self.interp_app_ref = app
+        self.terp_obj=terp_obj
 
     paths_ready = reactive({"source_data":None})
 
@@ -426,9 +440,9 @@ class OutputGroup(VerticalGroup):
         yield OptionsGroup(id = "options_group")
         yield RunInterp(id = "run_interp")
 
+    @work(thread=True)
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
-        #self.app._advance_pbar(self.query_one("#interp_progress_bar"),call_back = self._execute_write) ## replacing this pbar eventually
         interp_bar =  self.interp_app_ref.query_one("#interp_progress_bar", ProgressBar)
         interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
@@ -436,7 +450,8 @@ class OutputGroup(VerticalGroup):
         write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
-        ## terp(**kwargs) would be here
+        self.terp_obj.terp(**interp_kwargs) ##just testing
+        self.app.log_interp(f"done interpolating!!")
 
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
@@ -486,11 +501,14 @@ class PBar:
         if self.call_back:
             self.interp_app_ref.call_from_thread(self.call_back)
 
+    def update_total(self, pbar_total: int):
+        self.interp_app_ref.call_from_thread(self.pbar.update(total=pbar_total))
+        
     def close(self):
         ## textual automatically closes pbar when total == progress
         ## adding safety net regardless
-        current_step = self.query_one(self.pbar).progress
-        self.interp_app_ref.call_from_thread(self.pbar.update(total=current_step, progress=current_step))
+        current_step = self.pbar.progress
+        self.interp_app_ref.call_from_thread(self.pbar.update,total=current_step, progress=current_step)
 
 interp_kwargs = {
     "source_grd" : None,
@@ -518,16 +536,6 @@ class InterpApp(App):
     def watch_disable_output(self, disable_output):
         self.outputgroup.disabled = disable_output
 
-    ## adding back for testing purposes
-    @work(thread=True)
-    def _advance_pbar(self,pbar: ProgressBar, call_back = None) -> None:
-        for _ in range(pbar.total):
-            self.call_from_thread(pbar.advance, 1)
-            time.sleep(.05)
-
-        if call_back:
-            self.call_from_thread(call_back)
-
     BINDINGS = [
                 Binding("ctrl+d", "quit", "Quit", priority=True),
                 Binding("escape", "unfocus", "Unfocus", priority=True),]
@@ -535,7 +543,7 @@ class InterpApp(App):
     def __init__(self,*args,**kwargs):
         super().__init__(*args,**kwargs)
         self.inputgroup = InputGroup(self)
-        self.outputgroup = OutputGroup(self)
+        self.outputgroup = OutputGroup(self, self.inputgroup)
         self.textarea = Log()
 
     def compose(self) -> ComposeResult:

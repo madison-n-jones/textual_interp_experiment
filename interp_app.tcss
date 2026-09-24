@@ -53,11 +53,21 @@ FilePickerModal {
     padding: 1 2;
 }
 
-#modal-container Label {
+#modal-container > Label {
+    align: center top;
+    content-align-horizontal: center;
     margin-bottom: 1;
     text-style: bold;
-    
 }
+/* fix styling later*/
+#cd-btn {
+    width: 20;
+    height: 3;
+}
+#modal-container-header {
+    align: right top;
+}
+
 
 #dir_tree_path {
     margin-bottom: 1;
