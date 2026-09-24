@@ -11,7 +11,6 @@ from pathlib import Path
 from typing import Iterable
 import cstorm_utils.interp.stacks as cu
 
-#TODO Reconsider the color of buttons. Its very bright on the right side of the screen
 #TODO This can almost certianly be handled with input validators
 class FileValidator:
     """
@@ -408,13 +407,6 @@ class RunInterp(Horizontal):
             self.query_one("#interp_progress_bar").update(progress = 0)
             self.query_one("#write_progress_bar").update(progress = 0)
             self.parent.execute()
-#            self.app._advance_pbar(self.query_one("#interp_progress_bar"), # This is the most shit soup sandwich of a line of code I have ever written, but it works 
-#                                   call_back = lambda: (self.app.log_interp("Interped data\n")
-#                                                        or
-#                                                        self.app._advance_pbar(
-#                                                            self.query_one("#write_progress_bar"),
-#                                                            call_back = lambda: self.app.log_interp("Wrote data\n")
-#                                                        )))
 
 class OutputGroup(VerticalGroup):
     def __init__(self, app, terp_obj, *args,**kwargs):
@@ -467,20 +459,12 @@ class OutputGroup(VerticalGroup):
         ### making changes here, if interp_type not selected, use guess method function first, otherwise use function for interp method
         #if interp_type is Select.NULL:
             #interp_type = None
-            #method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
-            #interp_type=method.__name__
-            
-        #elif interp_type is "depth":
-        
-        #elif interp_type is "extreme":
-        
-        #elif interp_type is "timed":
+            #interp_type=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+    
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
-        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fix_dry=fix_dry, quite=quite, compress=compress)
+        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fixdry=fix_dry, quite=quite, compress=compress)
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
-        
-
 
 class FullWidthLogHeader(Label):
     """A full-width banner label to denote the start of the log output section."""
@@ -489,20 +473,24 @@ class FullWidthLogHeader(Label):
         super().__init__(text, **kwargs)
 
 class PBar:
-    def __init__(self, app, pbar: ProgressBar, call_back = None, *args,**kwargs) -> None:
+    def __init__(self, app, pbar: ProgressBar, call_back = None, mode="thread", *args,**kwargs) -> None:
         super().__init__()
         self.interp_app_ref = app
         self.pbar = pbar
         self.call_back = call_back
+        self.mode = mode
     
     def update(self, amount: int = 1):
         self.interp_app_ref.call_from_thread(self.pbar.advance, amount)
 
         if self.call_back:
             self.interp_app_ref.call_from_thread(self.call_back)
-
+    
     def update_total(self, pbar_total: int):
-        self.interp_app_ref.call_from_thread(self.pbar.update(total=pbar_total))
+        self.interp_app_ref.call_from_thread(self.pbar.update, total=pbar_total)
+        
+        if self.call_back:
+            self.interp_app_ref.call_from_thread(self.call_back)
         
     def close(self):
         ## textual automatically closes pbar when total == progress
@@ -511,15 +499,16 @@ class PBar:
         self.interp_app_ref.call_from_thread(self.pbar.update,total=current_step, progress=current_step)
 
 interp_kwargs = {
-    "source_grd" : None,
-    "target_grd" : None,
+    "source_grd" : "",
+    "target_grd" : "",
     "data_path" : None,
-    #"weights_path" : None,
+    "weights_path" : None,
     "out_path" : "interp.out",
     "save_weights" : None,
+    "compress": False,
     "interp_type" : None,
     "fixdry" : 0,
-    #"pool_cap" : None,
+    "pool_cap" : None,
     "quite" : False,
     "interp_pbar" : None,
     "write_pbar" : None
