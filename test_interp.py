@@ -344,7 +344,6 @@ class InputGroup(VerticalGroup):
             source_grd = None
             target_grd = None
             save_weights = None
-            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
         else:
             source_grd = self.query_one("#source_path").value
             target_grd = self.query_one("#target_path").value
@@ -362,7 +361,6 @@ class InputGroup(VerticalGroup):
             
             self.terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
             load_pbar.update()
-            update_kwargs(interp_kwargs, source_grd=source_grd, target_grd=target_grd, weights_path=weights, save_weights=save_weights)
 
             if save_weights_checked:
                 self.app.log_interp(f"Saving Weights...")
@@ -409,9 +407,8 @@ class RunInterp(Horizontal):
             self.parent.execute()
 
 class OutputGroup(VerticalGroup):
-    def __init__(self, app, terp_obj, *args,**kwargs):
+    def __init__(self, terp_obj, *args,**kwargs):
         super().__init__(*args,**kwargs)
-        self.interp_app_ref = app
         self.terp_obj=terp_obj
 
     paths_ready = reactive({"source_data":None})
@@ -436,19 +433,21 @@ class OutputGroup(VerticalGroup):
     def _execute_interp(self,data_path,out_path,fix_dry,interp_type,compress,quite):
         self.app.log_interp(f"Running interp with options:\n\tdata_path : {data_path}\n\tout_path : {out_path}\n\tfix_dry : {fix_dry}\n\tinterp_type : {interp_type}\n\tcompress : {compress}\n\tquite : {quite}\n")
         interp_bar =  self.interp_app_ref.query_one("#interp_progress_bar", ProgressBar)
-        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
+        interp_pbar = PBar(self.interp_app_ref, interp_bar, call_back = lambda: self.app.log_interp(f"INTERP: Completed step #{interp_bar.progress}"))
 
         write_bar =  self.interp_app_ref.query_one("#write_progress_bar", ProgressBar)
-        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
+        write_pbar = PBar(self.interp_app_ref, write_bar, call_back = lambda: self.app.log_interp(f"WRITING: Completed step #{write_bar.progress}"))
 
         update_kwargs(interp_kwargs, interp_pbar=interp_pbar, write_pbar=write_pbar)
         self.terp_obj.terp(**interp_kwargs) ##just testing
         self.app.log_interp(f"done interpolating!!")
 
+    """
+    possibly split up interp function in stacks.py, currently interp and write are nested making this unnecessary
     def _execute_write(self):
         self.app.log_interp(f"Interp completed")
-        #self.app._advance_pbar(self.query_one("#write_progress_bar"),call_back = lambda: self.app.log_interp(f"Data written"))
-        
+    """
+
     def execute(self):
         data_path = self.query_one("#source_data_path").value
         out_path = self.query_one("#output_path").value
@@ -456,14 +455,13 @@ class OutputGroup(VerticalGroup):
         if fix_dry is Select.NULL:
             fix_dry = 0
         interp_type = self.query_one("#interp_type_select").value
-        ### making changes here, if interp_type not selected, use guess method function first, otherwise use function for interp method
-        #if interp_type is Select.NULL:
-            #interp_type = None
-            #interp_type=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+        if interp_type is Select.NULL:
+            method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
+            interp_type=method.__name__
     
         compress = self.query_one("#compress_check_box").value
         quite = self.query_one("#quite_check_box").value
-        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fixdry=fix_dry, quite=quite, compress=compress)
+        update_kwargs(interp_kwargs, data_path=data_path, out_path=out_path, interp_type=interp_type, fixdry=fix_dry, compress=compress)
         self._execute_interp(data_path,out_path,fix_dry,interp_type,compress,quite)
 
 class FullWidthLogHeader(Label):
@@ -493,23 +491,17 @@ class PBar:
             self.interp_app_ref.call_from_thread(self.call_back)
         
     def close(self):
-        ## textual automatically closes pbar when total == progress
-        ## adding safety net regardless
+        ## textual automatically closes pbar when total == progress; adding safety net regardless
         current_step = self.pbar.progress
         self.interp_app_ref.call_from_thread(self.pbar.update,total=current_step, progress=current_step)
 
+#tested @5:30 9/24/2026, only these keys are valid. will not output data if any other kwargs are passed
 interp_kwargs = {
-    "source_grd" : "",
-    "target_grd" : "",
     "data_path" : None,
-    "weights_path" : None,
     "out_path" : "interp.out",
-    "save_weights" : None,
     "compress": False,
     "interp_type" : None,
     "fixdry" : 0,
-    "pool_cap" : None,
-    "quite" : False,
     "interp_pbar" : None,
     "write_pbar" : None
 }
