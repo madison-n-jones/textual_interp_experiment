@@ -52,20 +52,12 @@ FilePickerModal {
     border: solid $primary;
     padding: 1 2;
 }
+#modal-container-paths > Input {
+    width: 1fr;
+}
 
-#modal-container > Label {
-    align: center top;
-    content-align-horizontal: center;
-    margin-bottom: 1;
-    text-style: bold;
-}
-/* fix styling later*/
-#cd-btn {
-    width: 20;
-    height: 3;
-}
-#modal-container-header {
-    align: right top;
+#modal-container > Horizontal {
+    height: auto; 
 }
 
 
@@ -124,9 +116,6 @@ SaveWeightsGroup {
 }
 #save_weights_path.-invalid-file {
     border: tall $error;
-}
-#save_weights_path.-new-file {
-    border: tall $warning;
 }
 #placeholder {
     width: 16;

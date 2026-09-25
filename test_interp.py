@@ -101,18 +101,17 @@ class FilePickerModal(ModalScreen[Path]):
 
     def compose(self) -> ComposeResult:
         with Vertical(id="modal-container"):
-            with Horizontal(id="modal-container-header"):
-                yield Label("Select a File")
-                yield Static(classes="fixed-spacer",id = "placeholder")
-                yield Button("Change Directory", id="cd-btn")
-                yield Button("X", id="close-btn")
-                
+            yield Header()
             path = os.getcwd()
-            yield Input(value=path,id = "dir_tree_path")
+            with Horizontal(id="modal-container-paths"):
+                yield Button("Back", id="back-btn") 
+                yield Input(value=path,id = "dir_tree_path")
             dir_tree = FilteredDirectoryTree(path,id = "dir_tree")
             yield dir_tree
             dir_tree.focus()
             yield Footer()
+    def on_mount(self) -> None:
+        self.title = "Select a File"
 
     def on_input_submitted(self, event: Input.Submitted) -> None:
         path = Path(event.value.strip()).expanduser().resolve()
@@ -138,10 +137,8 @@ class FilePickerModal(ModalScreen[Path]):
             self.query_one("#dir_tree_path").value = str(path)
 
     def on_button_pressed(self, event: Button.Pressed) -> None:
-        if event.button.id == "cd-btn":
+        if event.button.id == "back-btn":
             self.action_up_dir()
-        elif event.button.id == "close-btn":
-            self.action_close_modal()
 
 
 class SelectFile(Button,FileValidator): 
@@ -407,8 +404,9 @@ class RunInterp(Horizontal):
             self.parent.execute()
 
 class OutputGroup(VerticalGroup):
-    def __init__(self, terp_obj, *args,**kwargs):
+    def __init__(self, app, terp_obj, *args,**kwargs):
         super().__init__(*args,**kwargs)
+        self.interp_app_ref = app
         self.terp_obj=terp_obj
 
     paths_ready = reactive({"source_data":None})
