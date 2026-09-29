@@ -331,7 +331,8 @@ class InputGroup(VerticalGroup):
     def execute(self):
         input_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
         input_pbar = PBar(self.interp_app_ref, input_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
-
+        
+        source_grd, target_grd, save_weights, weights = None, None, False, None
         if self.mode == "wts":
             weights = self.query_one("#source_path").value
             self.terp=cu.wts_mode(weights, input_pbar)
@@ -341,10 +342,7 @@ class InputGroup(VerticalGroup):
             save_weights_checked = self.query_one("#save_weights_button").value
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
-            else:
-                save_weights = False
 
-            self.app.log_interp(f"Beginning to read sources...")
             self.terp=cu.grd_mode(source_grd, target_grd, save_weights, input_pbar)
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
