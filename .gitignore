@@ -1,0 +1,6 @@
+stacks.py
+__pycache__
+*.txt
+cc.py
+cc.tcss
+.venv/

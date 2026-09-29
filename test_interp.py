@@ -430,7 +430,7 @@ class OutputGroup(VerticalGroup):
     def execute(self):
         data_path = self.query_one("#source_data_path").value or None
         out_path = self.query_one("#output_path").value or "interp.out"
-        fix_dry = self.query_one("#fix_dry_select").value or 0
+        fix_dry = self.query_one("#fix_dry_select").selection or 0
         interp_type = self.query_one("#interp_type_select").value
         
         if interp_type is Select.NULL:
