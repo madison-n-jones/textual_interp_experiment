@@ -329,40 +329,23 @@ class InputGroup(VerticalGroup):
     #TODO Move this out and split up the function in cstorm_utils
     @work(thread=True)
     def execute(self):
-        load_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
-        load_pbar = PBar(self.interp_app_ref, load_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
+        input_bar =  self.interp_app_ref.query_one("#load_weights_progressbar", ProgressBar)
+        input_pbar = PBar(self.interp_app_ref, input_bar, call_back = lambda: self.app.log_interp(f"Updating PBar step..."))
 
         if self.mode == "wts":
-            self.interp_app_ref.query_one("#load_weights_progressbar").update(total=2)
-            load_pbar.update()
             weights = self.query_one("#source_path").value
-            self.terp=[cu.CSTORM_U2U,cu.CSTORM_U2S][0].load(weights)
-            load_pbar.update()
-            source_grd = None
-            target_grd = None
-            save_weights = None
+            self.terp=cu.wts_mode(weights, input_pbar)
         else:
             source_grd = self.query_one("#source_path").value
             target_grd = self.query_one("#target_path").value
             save_weights_checked = self.query_one("#save_weights_button").value
-            weights = None
             if save_weights_checked:
                 save_weights = self.query_one("#save_weights_path").value or True #If value is an empty string return True
-                self.interp_app_ref.query_one("#load_weights_progressbar").update(total=10)
             else:
                 save_weights = False
 
             self.app.log_interp(f"Beginning to read sources...")
-            unstruct_kwargs,target_kwargs,target_grd_key = cu.read_sources(source_grd, target_grd, pbar=load_pbar)
-            self.app.log_interp(f"Done reading sources!!!")
-            
-            self.terp={"nodes":cu.CSTORM_U2U,"mesh":cu.CSTORM_U2S}[target_grd_key](unstruct_kwargs,target_kwargs)
-            load_pbar.update()
-
-            if save_weights_checked:
-                self.app.log_interp(f"Saving Weights...")
-                self.terp.save(save_weights, pbar=load_pbar)
-                self.app.log_interp(f"Weights saved!!!")
+            self.terp=cu.grd_mode(source_grd, target_grd, save_weights, input_pbar)
 
         self.app.log_interp(f"Running weights with options:\n\tsource_grd : {source_grd}\n\ttarget_grd : {target_grd}\n\tsave_weights : {save_weights}\n\tweights : {weights}\n")
         setattr(self.app, "disable_output", False)
@@ -447,12 +430,11 @@ class OutputGroup(VerticalGroup):
     """
 
     def execute(self):
-        data_path = self.query_one("#source_data_path").value
-        out_path = self.query_one("#output_path").value
-        fix_dry = self.query_one("#fix_dry_select").value
-        if fix_dry is Select.NULL:
-            fix_dry = 0
+        data_path = self.query_one("#source_data_path").value or None
+        out_path = self.query_one("#output_path").value or "interp.out"
+        fix_dry = self.query_one("#fix_dry_select").value or 0
         interp_type = self.query_one("#interp_type_select").value
+        
         if interp_type is Select.NULL:
             method=cu.CSTORM_U2U._guess_method(cu.CSTORM_U2U, filename=data_path)
             interp_type=method.__name__
@@ -493,16 +475,7 @@ class PBar:
         current_step = self.pbar.progress
         self.interp_app_ref.call_from_thread(self.pbar.update,total=current_step, progress=current_step)
 
-#tested @5:30 9/24/2026, only these keys are valid. will not output data if any other kwargs are passed
-interp_kwargs = {
-    "data_path" : None,
-    "out_path" : "interp.out",
-    "compress": False,
-    "interp_type" : None,
-    "fixdry" : 0,
-    "interp_pbar" : None,
-    "write_pbar" : None
-}
+interp_kwargs = {}
 
 def update_kwargs(interp_kwargs, **kwargs):
     interp_kwargs.update(kwargs)
